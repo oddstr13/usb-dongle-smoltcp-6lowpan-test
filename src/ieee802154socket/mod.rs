@@ -10,29 +10,32 @@ use smoltcp::Result;
 
 /// A socket that captures or transmits the complete frame.
 //#[derive(Debug)]
-pub struct IEEE802154Socket {
-    lower: ieee802154::Radio<'static>,
+pub struct IEEE802154Socket<'a> {
+    lower: &'a mut ieee802154::Radio<'a>,
     mtu: usize,
+    receiving: bool,
+    rx_buffer: ieee802154::Packet,
 }
 
 
-impl IEEE802154Socket {
+impl<'a> IEEE802154Socket<'a> {
     /// Creates a raw socket, bound to the interface called `name`.
     ///
     /// This requires superuser privileges or a corresponding capability bit
     /// set on the executable.
-    pub fn new(radio: ieee802154::Radio<'static>) -> Result<IEEE802154Socket> {
-        let mtu = ieee802154::Packet::CAPACITY as usize;
+    pub fn new(mut radio: ieee802154::Radio<'a>) -> Result<IEEE802154Socket> {
         Ok(IEEE802154Socket {
-            lower: radio,
-            mtu: mtu,
+            lower: &mut radio,
+            mtu: ieee802154::Packet::CAPACITY as usize,
+            receiving: false,
+            rx_buffer: ieee802154::Packet::new(),
         })
     }
 }
 
-impl<'a> Device<'a> for IEEE802154Socket {
+impl<'a> Device<'a> for IEEE802154Socket<'a> {
     type RxToken = RxToken;
-    type TxToken = TxToken;
+    type TxToken = TxToken<'a>;
 
     fn capabilities(&self) -> DeviceCapabilities {
         let mut caps = DeviceCapabilities::default();
@@ -43,26 +46,34 @@ impl<'a> Device<'a> for IEEE802154Socket {
     }
 
     fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
-        let mut lower = &self.lower;
-        let mut buffer = vec![0; self.mtu];
-        let mut buff = ieee802154::Packet::new();
-        match lower.recv(&mut buff) {
-            Ok(size) => {
-                buffer.resize(size, 0);
-                let rx = RxToken { buffer };
-                let tx = TxToken {
-                    lower: &self.lower,
-                };
-                Some((rx, tx))
-            }
-            Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => None,
-            Err(err) => panic!("{}", err),
+        let lower = &mut*self.lower;
+        
+        if !self.receiving {
+            lower.recv_async_start(&mut self.rx_buffer);
+            self.receiving = true;
+        }
+
+        if lower.recv_async_poll() {
+            let res = lower.recv_async_sync();
+            self.receiving = false;
+
+            let mut buffer = vec![0; self.rx_buffer.len() as usize];
+            buffer.copy_from_slice(&*self.rx_buffer);
+
+
+            let rx = RxToken { buffer };
+            let tx = TxToken {
+                lower: &mut self.lower,
+            };
+            Some((rx, tx))
+        } else {
+            None
         }
     }
 
     fn transmit(&'a mut self) -> Option<Self::TxToken> {
         Some(TxToken {
-            lower: &self.lower,
+            lower: &mut self.lower,
         })
     }
 
@@ -83,19 +94,23 @@ impl phy::RxToken for RxToken {
 }
 
 #[doc(hidden)]
-pub struct TxToken {
-    lower: &<'a> mut ieee802154::Radio,
+pub struct TxToken<'a> {
+    lower: &'a mut ieee802154::Radio<'a>,
 }
 
-impl phy::TxToken for TxToken {
+impl<'a> phy::TxToken for TxToken<'a> {
     fn consume<R, F>(self, _timestamp: Instant, len: usize, f: F) -> Result<R>
     where
         F: FnOnce(&mut [u8]) -> Result<R>,
     {
         let mut lower = self.lower;
-        let mut buffer = vec![0; len];
+        if self.receiving {
+            lower.cancel_recv();
+            self.receiving = false;
+        }
+        let mut buffer = ieee802154::Packet::new();
         let result = f(&mut buffer);
-        lower.send(&buffer[..]).unwrap();
+        lower.send(&mut buffer);
         result
     }
 }
