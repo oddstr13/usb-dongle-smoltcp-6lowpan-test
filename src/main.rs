@@ -10,7 +10,8 @@ use hal::clocks::{self, Clocks};
 use hal::ieee802154::{Channel, Packet, TxPower};
 use smoltcp::iface::{InterfaceBuilder, NeighborCache};
 use smoltcp::socket::{SocketSet, UdpPacketMetadata, UdpSocket, UdpSocketBuffer};
-use smoltcp::wire::{IpAddress, IpCidr};
+use smoltcp::time::Instant;
+use smoltcp::wire::{IpAddress, IpCidr, IpEndpoint};
 
 use core::panic::PanicInfo;
 use cortex_m::asm;
@@ -101,8 +102,6 @@ fn main() -> ! {
     let device = IEEE802154Socket::new(radio).unwrap();
 
 
-
-
     let mut neighbor_cache_entries = [None; 8];
     let mut neighbor_cache = NeighborCache::new(&mut neighbor_cache_entries[..]);
 
@@ -124,15 +123,20 @@ fn main() -> ! {
         64,
     )];
 
-    let mut iface = InterfaceBuilder::new(device)
-        .neighbor_cache(neighbor_cache)
-        .hardware_addr(ieee802154_addr.into())
-        .ip_addrs(&mut ip_addrs[..])
-        .finalize();
+    let mut ifb = InterfaceBuilder::new(device);
+
+    ifb = ifb.neighbor_cache(neighbor_cache);
+    
+        ifb.hardware_addr(ieee802154_addr.into());
+        ifb.ip_addrs(&mut ip_addrs[..]);
+    let mut iface = ifb.finalize();
 
     let mut socket_set_entries: [_; 2] = Default::default();
     let mut sockets = SocketSet::new(&mut socket_set_entries[..]);
     let udp_handle = sockets.add(udp_socket);
+
+
+
 
 
     let mut packet = Packet::new();
@@ -161,8 +165,19 @@ fn main() -> ! {
 
 
     //let mut receiving = false;
-
+    let counter:i64 = 0;
     loop {
+        counter += 1;
+        let timestamp = Instant::from_millis(counter);
+        match iface.poll(&mut sockets, timestamp) {
+            Ok(_) => {}
+            Err(e) => {
+                log::debug!("poll error: {}", e);
+            }
+        }
+
+
+
         /*
         if !receiving {
             radio.recv_async_start(&mut packet);
@@ -217,9 +232,27 @@ fn main() -> ! {
                                 //    radio.cancel_recv();
                                 //    receiving = false;
                                 //}
-                                packet.copy_from_slice(b"Hello, World!");
-                                radio.send(&mut packet);
+                                //packet.copy_from_slice(b"Hello, World!");
+                                //radio.send(&mut packet);
                                 //radio.energy_detection_scan(1); // Stop idle TX
+
+                                // udp:6969: respond "hello"
+                                
+                                let mut socket = sockets.get::<UdpSocket>(udp_handle);
+                                if !socket.is_open() {
+                                    socket.bind(1337).unwrap()
+                                }
+
+                                if socket.can_recv() {
+                                    socket
+                                        .recv()
+                                        .map(|(data, sender)| {
+                                            log::debug!("mDNS traffic: {} UDP bytes from {}", data.len(), sender)
+                                        })
+                                        .unwrap_or_else(|e| log::debug!("Recv UDP error: {:?}", e));
+                                }
+                                let target = IpEndpoint::new(IpAddress::v6(0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x9001), 1337);
+                                socket.send_slice("foo".as_bytes(), target);
                             }
                             _ => ()
                         }

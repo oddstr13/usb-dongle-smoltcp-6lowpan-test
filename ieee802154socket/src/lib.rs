@@ -8,7 +8,7 @@ use smoltcp::time::Instant;
 use smoltcp::Result;
 
 /// A socket that captures or transmits the complete frame.
-//#[derive(Debug)]
+#[derive(Debug)]
 pub struct IEEE802154Socket<'a> {
     lower: ieee802154::Radio<'a>,
     mtu: usize,
