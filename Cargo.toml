@@ -2,7 +2,7 @@
 authors = ["Odd Stråbø <oddstr13@openshell.no>"]
 edition = "2018"
 readme = "README.md"
-name = "usb-dongle-smoltcp-6lowpan-test"
+name = "usb-dongle-smoltcp-6lowpan"
 version = "0.1.0"
 
 [dependencies]
@@ -11,6 +11,9 @@ cortex-m-rt = "0.6.15"
 cortex-m-semihosting = "0.3.7"
 #panic-halt = "0.2.0"
 embedded-hal = "0.2.6"
+nb = "1.0.0"
+
+ieee802154socket = { path="./ieee802154socket"}
 
 # USB Serial
 usb-device = "0.2.7"
@@ -31,8 +34,8 @@ branch = "feat/async-radio"
 
 # this lets you use `cargo fix`!
 [[bin]]
-name = "usb-dongle-smoltcp-6lowpan-test"
-path = "bin"
+name = "usb-dongle-smoltcp-6lowpan"
+#path = "bin"
 test = false
 bench = false
 

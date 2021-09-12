@@ -5,11 +5,12 @@
 use core::str;
 use core::sync::atomic::{self, Ordering};
 
-
-
 use cortex_m_rt::entry;
 use hal::clocks::{self, Clocks};
-use hal::ieee802154::{self, Channel, Packet, TxPower};
+use hal::ieee802154::{Channel, Packet, TxPower};
+use smoltcp::iface::{InterfaceBuilder, NeighborCache};
+use smoltcp::socket::{SocketSet, UdpPacketMetadata, UdpSocket, UdpSocketBuffer};
+use smoltcp::wire::{IpAddress, IpCidr};
 
 use core::panic::PanicInfo;
 use cortex_m::asm;
@@ -19,7 +20,7 @@ use hal::usbd::{UsbPeripheral, Usbd};
 use usb_device::device::{UsbDeviceBuilder, UsbVidPid};
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
-use crate::ieee802154socket;
+use ieee802154socket::IEEE802154Socket;
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
@@ -92,11 +93,47 @@ fn main() -> ! {
         .build();
 
     let mut radio = hal::ieee802154::Radio::init(periph.RADIO, &clocks);
-
     // these are the default settings of the DK's radio
     // NOTE if you ran `change-channel` then you may need to update the channel here
     radio.set_channel(Channel::_20); // <- must match the Dongle's listening channel
     radio.set_txpower(TxPower::Pos8dBm);
+
+    let device = IEEE802154Socket::new(radio).unwrap();
+
+
+
+
+    let mut neighbor_cache_entries = [None; 8];
+    let mut neighbor_cache = NeighborCache::new(&mut neighbor_cache_entries[..]);
+
+    let mut rxms: [UdpPacketMetadata; 1] = [UdpPacketMetadata::EMPTY];
+    let mut rxps: [u8; 64];
+    let udp_rx_buffer = UdpSocketBuffer::new(&mut rxms[..], &mut rxps[..]);
+
+    let mut txms = [UdpPacketMetadata::EMPTY];
+    let mut txps: [u8; 128];
+    let udp_tx_buffer = UdpSocketBuffer::new(&mut txms[..], &mut txps[..]);
+
+    let udp_socket = UdpSocket::new(udp_rx_buffer, udp_tx_buffer);
+
+    let ieee802154_addr = smoltcp::wire::Ieee802154Address::Extended([
+        0x1a, 0x0b, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
+    ]);
+    let mut ip_addrs = [IpCidr::new(
+        IpAddress::v6(0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242),
+        64,
+    )];
+
+    let mut iface = InterfaceBuilder::new(device)
+        .neighbor_cache(neighbor_cache)
+        .hardware_addr(ieee802154_addr.into())
+        .ip_addrs(&mut ip_addrs[..])
+        .finalize();
+
+    let mut socket_set_entries: [_; 2] = Default::default();
+    let mut sockets = SocketSet::new(&mut socket_set_entries[..]);
+    let udp_handle = sockets.add(udp_socket);
+
 
     let mut packet = Packet::new();
 
@@ -123,9 +160,10 @@ fn main() -> ! {
     //radio.energy_detection_scan(1);
 
 
-    let mut receiving = false;
+    //let mut receiving = false;
 
     loop {
+        /*
         if !receiving {
             radio.recv_async_start(&mut packet);
             receiving = true;
@@ -143,6 +181,7 @@ fn main() -> ! {
                 },
             }
         }
+        */
 
         if usb_dev.poll(&mut [&mut serial]) {
             let mut buf = [0u8; 64];
@@ -174,10 +213,10 @@ fn main() -> ! {
                                 serial.write(b"\r\n").ok();
                             }
                             b'T' => {
-                                if receiving {
-                                    radio.cancel_recv();
-                                    receiving = false;
-                                }
+                                //if receiving {
+                                //    radio.cancel_recv();
+                                //    receiving = false;
+                                //}
                                 packet.copy_from_slice(b"Hello, World!");
                                 radio.send(&mut packet);
                                 //radio.energy_detection_scan(1); // Stop idle TX

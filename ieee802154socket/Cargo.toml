@@ -1,0 +1,22 @@
+[package]
+authors = ["Odd Stråbø <oddstr13@openshell.no>"]
+edition = "2018"
+readme = "README.md"
+name = "ieee802154socket"
+version = "0.1.0"
+
+[dependencies]
+embedded-hal = "0.2.6"
+nb = "1.0.0"
+log = "0.4.14"
+
+[dependencies.smoltcp]
+git = "https://github.com/thibautvdv/smoltcp"
+branch = "ieee802154"
+default-features = false
+features = ["log", "medium-ieee802154", "proto-sixlowpan", "socket-udp", "socket-tcp", "socket-icmp"]
+
+[dependencies.hal]
+package = "nrf52840-hal"
+git = "https://github.com/oddstr13/nrf-hal"
+branch = "feat/async-radio"
