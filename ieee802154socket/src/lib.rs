@@ -9,14 +9,14 @@ use smoltcp::Result;
 
 /// A socket that captures or transmits the complete frame.
 #[derive(Debug)]
-pub struct IEEE802154Socket<'a> {
-    lower: ieee802154::Radio<'a>,
+pub struct IEEE802154Socket {
+    lower: ieee802154::Radio<'static>,
     mtu: usize,
 }
 
 
-impl<'a> IEEE802154Socket<'a> {
-    pub fn new(radio: ieee802154::Radio<'a>) -> Result<IEEE802154Socket> {
+impl IEEE802154Socket {
+    pub fn new(radio: ieee802154::Radio<'static>) -> Result<IEEE802154Socket> {
         Ok(IEEE802154Socket {
             lower: radio,
             mtu: ieee802154::Packet::CAPACITY as usize,
@@ -24,7 +24,7 @@ impl<'a> IEEE802154Socket<'a> {
     }
 }
 
-impl<'a> Device<'a> for IEEE802154Socket<'a> {
+impl<'a> Device<'a> for IEEE802154Socket {
     type RxToken = RxToken;
     type TxToken = TxToken<'a>;
 
@@ -40,6 +40,7 @@ impl<'a> Device<'a> for IEEE802154Socket<'a> {
 
         match self.lower.recv_async() {
             Ok(packet) => {
+                log::debug!("received {} bytes", packet.len());
                 let rx = RxToken { buffer:packet };
                 let tx = TxToken {
                     lower: &mut self.lower,
@@ -72,13 +73,14 @@ impl phy::RxToken for RxToken {
     where
         F: FnOnce(&mut [u8]) -> Result<R>,
     {
+        log::debug!("RxToken consume");
         f(&mut self.buffer[..])
     }
 }
 
 #[doc(hidden)]
 pub struct TxToken<'a> {
-    lower: &'a mut ieee802154::Radio<'a>,
+    lower: &'a mut ieee802154::Radio<'static>,
 }
 
 impl<'a> phy::TxToken for TxToken<'a> {
@@ -86,8 +88,12 @@ impl<'a> phy::TxToken for TxToken<'a> {
     where
         F: FnOnce(&mut [u8]) -> Result<R>,
     {
+        log::debug!("TxToken consume {}", len);
         let mut buffer = ieee802154::Packet::new();
-        let result = f(&mut buffer);
+        buffer.set_len(len as u8);
+
+        let result = f(&mut *buffer);
+
         self.lower.send(&mut buffer);
         result
     }
