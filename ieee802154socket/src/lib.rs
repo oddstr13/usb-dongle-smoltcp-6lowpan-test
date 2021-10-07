@@ -74,7 +74,7 @@ impl phy::RxToken for RxToken {
         F: FnOnce(&mut [u8]) -> Result<R>,
     {
         log::debug!("RxToken consume");
-        f(&mut self.buffer.get_data_crc_included_mut())
+        f(&mut self.buffer)
     }
 }
 
