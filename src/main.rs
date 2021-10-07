@@ -140,6 +140,15 @@ fn main() -> ! {
 
     let _id = (periph.FICR.deviceid[0].read().bits() as u64) | (periph.FICR.deviceid[1].read().bits() as u64) << 32;
     let id = hexify(_id);
+    let short_id: u16 = (_id & 0xffff) as u16;
+
+    // TODO: Hard-coded last two bytes of the hardware ID / IP address of the two ends
+    let target_short: u16;
+    if short_id == 0xC352 { // DK
+        target_short = 0x3805;
+    } else {
+        target_short = 0xC352;
+    }
 
     let _addr = (periph.FICR.deviceaddr[0].read().bits() as u64) | ((periph.FICR.deviceaddr[1].read().bits() & 0xffff) as u64) << 32;
     let addr = hexify(_addr);
@@ -167,33 +176,33 @@ fn main() -> ! {
 
     
 
-    let mut rxms: [UdpPacketMetadata; 1] = [UdpPacketMetadata::EMPTY];
-    let mut rxps: [u8; 64] = [0; 64];
+    let mut rxms = [UdpPacketMetadata::EMPTY; 2];
+    let mut rxps: [u8; 256] = [0; 256];
     let udp_rx_buffer = UdpSocketBuffer::new(&mut rxms[..], &mut rxps[..]);
 
-    let mut txms = [UdpPacketMetadata::EMPTY];
-    let mut txps: [u8; 128] = [0; 128];
+    let mut txms = [UdpPacketMetadata::EMPTY; 2];
+    let mut txps: [u8; 256] = [0; 256];
     let udp_tx_buffer = UdpSocketBuffer::new(&mut txms[..], &mut txps[..]);
 
     let udp_socket = UdpSocket::new(udp_rx_buffer, udp_tx_buffer);
 
-    let ieee802154_addr = smoltcp::wire::Ieee802154Address::Extended([
-        0x1a, 0x0b, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
-    ]);
+    let ieee802154_addr = smoltcp::wire::Ieee802154Address::Extended(_id.to_be_bytes());
+
     let mut ip_addrs = [IpCidr::new(
         IpAddress::v6(
-            0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242
+            0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, short_id
         ),
         64,
     )];
 
-    let target_hwaddr = smoltcp::wire::Ieee802154Address::Extended([
+    /*let target_hwaddr = smoltcp::wire::Ieee802154Address::Extended([
         0x1a, 0x0b, 0x42, 0x42, 0xde, 0xad, 0xbe, 0xef,
     ]);
+    */
     let target_ip = IpAddress::v6(
-        0xfe80, 0, 0, 0, 0x180b, 0x4242, 0xdead, 0xbeef
+        0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, target_short
     );
-    neighbor_cache.fill( target_ip,smoltcp::wire::HardwareAddress::Ieee802154(target_hwaddr),mock_clock.elapsed());
+    //neighbor_cache.fill( target_ip,smoltcp::wire::HardwareAddress::Ieee802154(target_hwaddr),mock_clock.elapsed());
 
     let mut ifb = InterfaceBuilder::new(device);
 
@@ -206,8 +215,6 @@ fn main() -> ! {
     let mut socket_set_entries: [_; 2] = Default::default();
     let mut sockets = SocketSet::new(&mut socket_set_entries[..]);
     let udp_handle = sockets.add(udp_socket);
-
-
 
 
 /*
@@ -242,7 +249,11 @@ fn main() -> ! {
         if x == 0 {
             mock_clock.advance(Duration::from_millis(1));
         }
-        x = x.wrapping_add(1);
+        if x < 1_000 {
+            x = x.wrapping_add(1);
+        } else {
+            x = 0;
+        }
 
         match iface.poll(&mut sockets, mock_clock.elapsed()) {
             Ok(_) => {}
@@ -255,6 +266,7 @@ fn main() -> ! {
         {
             
         let mut socket = sockets.get::<UdpSocket>(udp_handle);
+        
         if !socket.is_open() {
             log::debug!("Opening socket…");
             socket.bind(1337).unwrap();
@@ -367,7 +379,7 @@ fn main() -> ! {
     }
 
         match iface.poll_delay(&sockets, mock_clock.elapsed()) {
-            Some(Duration { millis: 0 }) => log::debug!("resuming"),
+            // Some(Duration { millis: 0 }) => log::debug!("resuming"),
             Some(_delay) => (),/*{
                 mock_clock.advance(delay)
             }*/
