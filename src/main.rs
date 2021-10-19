@@ -12,6 +12,7 @@ use log::{Log};
 use smoltcp::iface::{InterfaceBuilder, NeighborCache};
 use smoltcp::socket::{SocketSet, UdpPacketMetadata, UdpSocket, UdpSocketBuffer};
 use smoltcp::time::{Duration};
+use smoltcp::wire::Ieee802154Pan;
 use smoltcp::wire::{IpAddress, IpCidr, IpEndpoint};
 
 use core::panic::PanicInfo;
@@ -188,10 +189,11 @@ fn main() -> ! {
 
     let ieee802154_addr = smoltcp::wire::Ieee802154Address::Extended(_id.to_be_bytes());
 
+    let ip = IpAddress::v6(
+        0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, short_id
+    );
     let mut ip_addrs = [IpCidr::new(
-        IpAddress::v6(
-            0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, short_id
-        ),
+        ip.clone(),
         64,
     )];
 
@@ -209,6 +211,7 @@ fn main() -> ! {
     ifb = ifb.neighbor_cache(neighbor_cache);
     ifb = ifb.hardware_addr(ieee802154_addr.into());
     ifb = ifb.ip_addrs(&mut ip_addrs[..]);
+    ifb = ifb.pan_id(Ieee802154Pan(0x0000));
     
     let mut iface = ifb.finalize();
 
